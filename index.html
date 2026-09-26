@@ -73,6 +73,9 @@ a{color:inherit}
 .portals span{color:var(--ink-3);font-size:.9rem;font-weight:300;display:block;max-width:30ch}
 .portals a:hover{border-color:var(--ice)}
 .portals a:hover strong{color:var(--ice)}
+.stats-strip{display:flex;gap:clamp(24px,5vw,64px);margin:8px 0 44px;flex-wrap:wrap}
+.stats-strip div b{display:block;font-family:var(--serif);font-weight:400;font-size:1.9rem;line-height:1}
+.stats-strip div span{color:var(--ink-3);font-size:.8rem}
 
 /* Shared page furniture */
 .pagehead{position:absolute;left:clamp(18px,4vw,56px);top:calc(var(--sat) + 96px);max-width:min(380px,44vw)}
@@ -105,6 +108,12 @@ dl.stats dd{margin:0;text-align:right;color:var(--ink)}
 .chip:hover{color:var(--ink)}
 .chip[aria-pressed="true"]{color:var(--ink);border-color:rgba(156,194,255,.65);background:rgba(90,120,220,.24)}
 .chip .dot{width:9px;height:9px;border-radius:50%}
+.vignette{position:fixed;inset:0;z-index:1;pointer-events:none;background:radial-gradient(ellipse at center,transparent 45%,rgba(2,3,10,.55) 100%)}
+.search{display:block;width:100%;font:inherit;font-size:.9rem;color:var(--ink);background:var(--glass);border:1px solid var(--line);border-radius:999px;padding:0 18px;min-height:42px;margin:16px 0 0}
+.search::placeholder{color:var(--ink-3)}
+.fav{position:absolute;top:18px;right:16px;background:none;border:0;cursor:pointer;font-size:1.15rem;color:var(--ink-3);line-height:1;padding:4px}
+.fav[aria-pressed="true"]{color:var(--ember)}
+.card{padding-right:52px}
 
 /* Galaxy controls */
 .presets{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 18px}
@@ -178,6 +187,7 @@ body.busy .loader{opacity:1}
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <canvas id="scene" class="dim" aria-hidden="true"></canvas>
+<div class="vignette" aria-hidden="true"></div>
 
 <header class="top">
   <a class="brand" href="#home" aria-label="Cosmos, home">
@@ -205,6 +215,11 @@ body.busy .loader{opacity:1}
         <a class="btn primary" href="#system">Enter the Solar System</a>
         <a class="btn ghost" href="#galaxy">Explore galaxies</a>
       </div>
+      <div class="stats-strip" aria-hidden="true">
+        <div><b>9</b><span>Planets and Sun</span></div>
+        <div><b>70,000+</b><span>Simulated stars per galaxy</span></div>
+        <div><b>9</b><span>Missions, 1969&ndash;2023</span></div>
+      </div>
     </div>
     <ul class="portals">
       <li><a href="#system"><strong>Solar System</strong><span>Orbit the Sun, then fly in close to each planet.</span></a></li>
@@ -219,6 +234,7 @@ body.busy .loader{opacity:1}
       <h2>Solar System</h2>
       <p>Drag to rotate, scroll or pinch to zoom, and select a body to fly to it. Sizes and distances are stylised so every planet stays visible.</p>
       <div class="tools">
+        <button class="pill" id="btn-tour" type="button" aria-pressed="false">Tour</button>
         <button class="pill" id="btn-pause" type="button" aria-pressed="false">Pause motion</button>
         <button class="pill" id="btn-labels" type="button" aria-pressed="true">Labels</button>
       </div>
@@ -252,6 +268,7 @@ body.busy .loader{opacity:1}
         <div class="ctl"><label for="g-arms">Spiral arms</label><output id="o-arms" for="g-arms">4</output><input id="g-arms" type="range" min="2" max="6" step="1" value="4"></div>
         <div class="ctl"><label for="g-wind">Winding</label><output id="o-wind" for="g-wind">1.1</output><input id="g-wind" type="range" min="0.4" max="2.6" step="0.1" value="1.1"></div>
         <div class="ctl"><label for="g-dens">Stars</label><output id="o-dens" for="g-dens">70,000</output><input id="g-dens" type="range" min="20000" max="100000" step="5000" value="70000"></div>
+        <div class="tools" style="margin-top:6px"><button class="pill" id="btn-randomize" type="button">Randomize</button><button class="pill" id="btn-save" type="button" hidden>Save image</button></div>
       </article>
       <details class="panel facts" id="facts" open>
         <summary>How big is it?</summary>
@@ -273,6 +290,7 @@ body.busy .loader{opacity:1}
         <h2>Missions</h2>
         <p>Nine missions that widened what we can see, reach and measure, in chronological order. Filter them by kind.</p>
         <div class="filters" id="filters" role="group" aria-label="Filter missions"></div>
+        <input class="search" id="m-search" type="search" placeholder="Search missions or agencies&hellip;" aria-label="Search missions">
       </div>
       <ol class="tl" id="tl"></ol>
     </div>
@@ -298,7 +316,7 @@ var W = window.innerWidth, H = window.innerHeight;
 var renderer = null;
 if (window.THREE) {
   try {
-    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: !small, powerPreference: 'high-performance' });
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: !small, powerPreference: 'high-performance', preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, small ? 1.75 : 2));
     renderer.setClearColor(0x04050f, 1);
   } catch (e) { renderer = null; }
@@ -693,6 +711,34 @@ function setFocus(id){
     e.currentTarget.setAttribute('aria-pressed', String(sysState.labels));
     $('#tags').style.display = sysState.labels ? '' : 'none';
   });
+  var tourTimer = null, tourBtn = $('#btn-tour');
+  function tourStep(){
+    var ids = BODIES.map(function(b){ return b.id; });
+    var i = ids.indexOf(sysState.focus);
+    setFocus(ids[(i + 1) % ids.length]);
+  }
+  tourBtn.addEventListener('click', function(e){
+    var on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+    e.currentTarget.setAttribute('aria-pressed', String(on));
+    if (on){ if (!sysState.focus) setFocus('mercury'); tourTimer = setInterval(tourStep, 6500); }
+    else { clearInterval(tourTimer); tourTimer = null; }
+  });
+  document.addEventListener('click', function(e){
+    if (e.target.closest && e.target.closest('.chip') && tourTimer){ clearInterval(tourTimer); tourTimer = null; tourBtn.setAttribute('aria-pressed', 'false'); }
+  });
+  document.addEventListener('keydown', function(e){
+    if (!document.getElementById('system').classList.contains('active')) return;
+    if (e.target.tagName === 'INPUT') return;
+    var ids = BODIES.map(function(b){ return b.id; });
+    if (e.key === 'Escape'){ setFocus('overview'); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+      var i = ids.indexOf(sysState.focus);
+      if (i === -1) i = e.key === 'ArrowRight' ? -1 : 0;
+      i = (i + (e.key === 'ArrowRight' ? 1 : -1) + ids.length) % ids.length;
+      setFocus(ids[i]);
+    } else return;
+    e.preventDefault();
+  });
   setFocus('overview');
 })();
 
@@ -880,7 +926,28 @@ function buildGalaxy(){
   $$('#presets .pill').forEach(function(b){
     b.addEventListener('click', function(){ arms.value = b.dataset.arms; wind.value = b.dataset.wind; sync(); });
   });
+  $('#btn-randomize').addEventListener('click', function(){
+    arms.value = 2 + Math.floor(Math.random() * 5);
+    wind.value = (0.4 + Math.random() * 2.2).toFixed(1);
+    sync();
+  });
   if (small) { dens.value = 45000; $('#o-dens').textContent = '45,000'; $('#facts').open = false; }
+
+  var downloadsApi = null;
+  if (window.claude && window.claude.use){
+    window.claude.use('downloads').then(function(d){
+      downloadsApi = d;
+      if (d) $('#btn-save').hidden = false;
+    }).catch(function(){});
+  }
+  $('#btn-save').addEventListener('click', function(){
+    if (!renderer || !downloadsApi) return;
+    if (active === built.galaxy) renderer.render(active.scene, active.cam);
+    canvas.toBlob(function(blob){
+      if (!blob) return;
+      downloadsApi.save({ filename: 'cosmos-galaxy.png', data: blob }).catch(function(){});
+    }, 'image/png');
+  });
 })();
 
 /* ============================================================
@@ -966,29 +1033,53 @@ var MISSIONS = [
   { y:'2023', n:'Chandrayaan-3', by:'ISRO', k:'lander', kd:'Lander and rover',
     t:'India\u2019s lander Vikram touched down near the Moon\u2019s south pole on 23 August 2023, and the Pragyan rover then explored the surface.' }
 ];
-var FILTERS = [['all','All missions'],['crewed','Crewed'],['probe','Probes'],['telescope','Telescopes'],['lander','Landers and rovers']];
+var FILTERS = [['all','All missions'],['fav','Favourites'],['crewed','Crewed'],['probe','Probes'],['telescope','Telescopes'],['lander','Landers and rovers']];
+
+var favs = (function(){
+  var store = {};
+  try { store = JSON.parse(localStorage.getItem('cosmos-favs') || '{}'); } catch (e) {}
+  function save(){ try { localStorage.setItem('cosmos-favs', JSON.stringify(store)); } catch (e) {} }
+  return { has: function(n){ return !!store[n]; }, toggle: function(n){ store[n] = !store[n]; save(); return store[n]; } };
+})();
 
 (function initMissionsUI(){
-  var tl = $('#tl'), fl = $('#filters');
+  var tl = $('#tl'), fl = $('#filters'), search = $('#m-search'), curF = 'all';
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
-  function render(f){
+  function render(){
     tl.textContent = '';
-    MISSIONS.filter(function(m){ return f === 'all' || m.k === f; }).forEach(function(m){
+    var q = search.value.trim().toLowerCase();
+    MISSIONS.filter(function(m){
+      if (curF === 'fav') { if (!favs.has(m.n)) return false; }
+      else if (curF !== 'all' && m.k !== curF) return false;
+      if (q && (m.n + ' ' + m.by).toLowerCase().indexOf(q) === -1) return false;
+      return true;
+    }).forEach(function(m){
       var li = document.createElement('li'); li.className = 'entry';
-      li.innerHTML = '<article class="card"><div class="head"><span class="when">' + esc(m.y) + '</span><span class="kd">' + esc(m.kd) + '</span></div><h3>' + esc(m.n) + '</h3><div class="by">' + esc(m.by) + '</div><p>' + esc(m.t) + '</p></article>';
+      li.innerHTML = '<article class="card"><button type="button" class="fav" aria-pressed="' + favs.has(m.n) + '" aria-label="Favourite ' + esc(m.n) + '">' + (favs.has(m.n) ? '\u2605' : '\u2606') + '</button><div class="head"><span class="when">' + esc(m.y) + '</span><span class="kd">' + esc(m.kd) + '</span></div><h3>' + esc(m.n) + '</h3><div class="by">' + esc(m.by) + '</div><p>' + esc(m.t) + '</p></article>';
+      li.querySelector('.fav').addEventListener('click', function(e){
+        var on = favs.toggle(m.n);
+        e.currentTarget.setAttribute('aria-pressed', String(on));
+        e.currentTarget.textContent = on ? '\u2605' : '\u2606';
+        if (curF === 'fav' && !on) render();
+      });
       tl.appendChild(li);
     });
+    if (!tl.children.length){
+      var empty = document.createElement('li'); empty.style.color = 'var(--ink-3)'; empty.style.fontSize = '.9rem'; empty.textContent = 'No missions match.';
+      tl.appendChild(empty);
+    }
   }
   FILTERS.forEach(function(f, i){
     var b = document.createElement('button');
     b.type = 'button'; b.className = 'pill'; b.textContent = f[1]; b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
     b.addEventListener('click', function(){
       $$('#filters .pill').forEach(function(x){ x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
-      render(f[0]);
+      curF = f[0]; render();
     });
     fl.appendChild(b);
   });
-  render('all');
+  search.addEventListener('input', render);
+  render();
   tl.addEventListener('pointermove', function(e){
     if (reduce || e.pointerType !== 'mouse') return;
     var c = e.target.closest('.card'); if (!c) return;
